@@ -325,8 +325,8 @@ function render(){
     chips.appendChild(b);
   });
   if(editMode){
-    var add=document.createElement("button"); add.className="chip add"; add.textContent="+ GROUP";
-    add.onclick=addGroup; chips.appendChild(add);
+    var addChip=document.createElement("button"); addChip.className="chip add"; addChip.textContent="+ GROUP";
+    addChip.onclick=addGroup; chips.appendChild(addChip);
   }
 
   var items=document.getElementById("items"); items.innerHTML="";
