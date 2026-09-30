@@ -128,6 +128,7 @@
   .ghost{background:transparent; border:1px dashed var(--line); color:var(--muted);
     padding:11px; width:100%; font-size:13px; text-align:center;}
   .card{border:1px solid var(--line); padding:12px; display:grid; gap:8px; background:var(--panel);}
+  .card.inline{width:100%; border-color:var(--amber); border-top:none;}
   .card.hi{border-color:var(--amber);}
   .cardlabel{font-family:var(--mono); font-size:9px; letter-spacing:.2em; color:var(--amber);}
   input,select,textarea{background:var(--bg); border:1px solid var(--line); color:var(--bone);
@@ -302,8 +303,8 @@
   </div>
   <div class="chips" id="chips"></div>
   <div class="hint" id="editHint" style="display:none; margin-bottom:8px;">
-    Tap a food to rename it or fix its numbers. &times; removes it — built-ins go to
-    HIDDEN below and can be restored any time.</div>
+    Tap a food to rename it or fix its numbers. &times; removes it — built-ins can be
+    restored from HIDDEN below.</div>
   <div class="items" id="items"></div>
   <div id="hiddenWrap"></div>
 
@@ -327,6 +328,7 @@
         <button class="cancel" id="qCancel">Cancel</button>
       </div>
     </div>
+    <div id="foodCardHome">
     <div class="card" id="foodCard" style="display:none;">
       <div class="cardlabel" id="foodCardLabel">NEW FOOD</div>
       <input id="cn" placeholder="Name">
@@ -347,6 +349,7 @@
         <button class="cancel" id="cCancel">Cancel</button>
       </div>
       <button class="danger" id="cDelete" style="display:none;">Delete this food</button>
+    </div>
     </div>
   </div>
 </div>
@@ -382,7 +385,7 @@
 <div class="sr" id="live" aria-live="polite"></div>
 
 <script>
-var PREFIX = "ration:", CFG = "ration_cfg", VERSION = "2.2";
+var PREFIX = "ration:", CFG = "ration_cfg", VERSION = "2.3";
 
 var BUILTIN = [
   {id:"b1", n:"Protein shake",s:"1 serving powder + water",c:150,p:21,g:"Morning"},
@@ -427,7 +430,7 @@ var cfg = {calTarget:2000, proTarget:130, groups:BASE_GROUPS.slice(),
            custom:[], hidden:[], edits:{}, setup:false, ver:2, lastBackup:0, a2hs:false,
            streak:false, weight:false, unit:"lb"};
 var day = todayStr(), group = null, entries = [], editMode = false;
-var openQty = null, openNote = null, editingId = null, query = "";
+var openQty = null, openNote = null, editingId = null, query = "", showHidden = false;
 var undoState = null, undoTimer = null;
 
 /* ---------- dates ---------- */
@@ -912,7 +915,13 @@ function renderPicker(){
   } else if(group===RECENT){ list=rec; }
   else { list=lib.filter(function(f){return f.g===group;}); }
 
-  var items=document.getElementById("items"); items.innerHTML="";
+  var items=document.getElementById("items");
+  /* the edit form gets moved into the item being edited, so rescue it back to
+     its home before wiping the list — otherwise clearing #items destroys it */
+  var fc=document.getElementById("foodCard");
+  fc.className="card";
+  document.getElementById("foodCardHome").appendChild(fc);
+  items.innerHTML="";
   if(!list.length){
     var d=document.createElement("div"); d.className="empty";
     d.textContent = query ? "No foods match “"+query+"”."
@@ -944,7 +953,11 @@ function itemRow(f){
   var m=document.createElement("span"); m.className="macro";
   m.textContent=nf(f.c)+" · "+nf(f.p)+"g";
   b.appendChild(left); b.appendChild(m);
-  b.onclick=function(){ editMode ? openFoodForm(f) : add(f,1); };
+  b.onclick=function(){
+    if(!editMode){ add(f,1); return; }
+    if(editingId===f.id){ closeFoodForm(); render(); }   /* tap again to close */
+    else openFoodForm(f);
+  };
   w.appendChild(b);
 
   if(editMode){
@@ -952,6 +965,13 @@ function itemRow(f){
     x.textContent="×"; x.setAttribute("aria-label","Remove "+f.n);
     x.onclick=function(){ hideFood(f); };
     w.appendChild(x);
+    /* edit in place, like the notes and quantity strips — not in a form parked
+       at the bottom of the page under everything else */
+    if(editingId===f.id){
+      var card=document.getElementById("foodCard");
+      card.className="card inline";
+      w.appendChild(card);
+    }
   } else {
     if(f.r){
       var nb=document.createElement("button"); nb.className="side"+(openNote===f.id?" on":"");
@@ -984,15 +1004,18 @@ function itemRow(f){
 
 function renderHidden(){
   var wrap=document.getElementById("hiddenWrap"); wrap.innerHTML="";
-  if(!editMode || !cfg.hidden.length) return;
+  if(!editMode || !cfg.hidden.length){ showHidden=false; return; }
   var sec=document.createElement("div"); sec.className="section";
   var lab=document.createElement("span"); lab.className="section-label";
   lab.textContent="HIDDEN · "+cfg.hidden.length; sec.appendChild(lab);
-  var all=document.createElement("button"); all.className="mini";
-  all.textContent="RESTORE ALL";
-  all.onclick=function(){ cfg.hidden=[]; reconcile(); saveCfg(); render(); };
-  sec.appendChild(all);
+  var tog=document.createElement("button"); tog.className="mini"+(showHidden?" on":"");
+  tog.textContent=showHidden?"HIDE":"SHOW";
+  tog.onclick=function(){ showHidden=!showHidden; renderPicker(); };
+  sec.appendChild(tog);
   wrap.appendChild(sec);
+  /* collapsed by default — the list is a recovery tool, not something you need
+     to scroll past every time you open edit mode */
+  if(!showHidden) return;
 
   var box=document.createElement("div"); box.className="items";
   cfg.hidden.slice().forEach(function(id){
@@ -1008,6 +1031,11 @@ function renderHidden(){
     };
     w.appendChild(b); box.appendChild(w);
   });
+  var all=document.createElement("button"); all.className="ghost";
+  all.textContent="Restore all "+cfg.hidden.length;
+  all.style.marginTop="6px";
+  all.onclick=function(){ cfg.hidden=[]; reconcile(); saveCfg(); render(); };
+  box.appendChild(all);
   wrap.appendChild(box);
 }
 
@@ -1079,10 +1107,14 @@ function openFoodForm(f){
   document.getElementById("cKeepRow").style.display = f?"none":"flex";
   document.getElementById("cAdd").textContent = f?"Save":"Add";
   document.getElementById("cDelete").style.display = f?"block":"none";
+  if(f){ renderPicker(); }   /* re-render so the card lands inside the tapped row */
 }
 function closeFoodForm(){
   editingId=null;
-  document.getElementById("foodCard").style.display="none";
+  var card=document.getElementById("foodCard");
+  card.style.display="none";
+  card.className="card";
+  document.getElementById("foodCardHome").appendChild(card);
   document.getElementById("customBtn").style.display="block";
   ["cn","cs","cc","cp","cr"].forEach(function(id){document.getElementById(id).value="";});
   document.getElementById("cKeep").checked=true;
@@ -1167,10 +1199,10 @@ document.getElementById("tSave").onclick=function(){
 };
 
 document.getElementById("editBtn").onclick=function(){
-  editMode=!editMode; openQty=openNote=null;
+  editMode=!editMode; openQty=openNote=null; showHidden=false;
   this.className=editMode?"mini on":"mini";
   this.textContent=editMode?"DONE":"EDIT";
-  if(!editMode) closeFoodForm();
+  closeFoodForm();
   render();
 };
 
