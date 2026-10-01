@@ -12,6 +12,7 @@
   :root{
     --bg:#12160F; --panel:#1B2016; --panelHi:#232A1D; --line:#333D2A;
     --bone:#E8E6DC; --muted:#8B9179; --amber:#E0A93B; --olive:#7E9B4E; --red:#C4593F;
+    --carb:#C2A878; --fat:#A87C5A;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
@@ -48,6 +49,22 @@
   .track{position:relative; height:10px; background:var(--panelHi); border:1px solid var(--line); overflow:hidden;}
   .fill{height:100%; width:0; transition:width 320ms cubic-bezier(.2,.8,.2,1);}
   .notch{position:absolute; top:0; bottom:0; width:2px; background:var(--bone); opacity:.55;}
+
+  /* compact row used instead of the big protein gauge once carbs or fat are on */
+  .macros{display:flex; gap:10px; margin-bottom:8px;}
+  .mac{flex:1; min-width:0;}
+  .mac-label{font-family:var(--mono); font-size:9px; letter-spacing:.14em;
+    color:var(--muted); display:block; margin-bottom:5px;}
+  .mac-nums{display:flex; align-items:baseline; gap:3px; margin-bottom:6px;}
+  .mac-val{font-size:25px; font-weight:700; line-height:1; letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;}
+  .mac-of{font-family:var(--mono); font-size:10px; color:var(--muted);}
+  .mac .track{height:7px;}
+  .mac-left{font-family:var(--mono); font-size:9px; color:var(--muted); margin-top:5px; display:block;}
+  .mac-left.over{color:var(--amber);}
+  .mac-left.met{color:var(--olive);}
+  .macnote{font-family:var(--mono); font-size:9px; letter-spacing:.1em;
+    color:var(--amber); opacity:.85; margin-bottom:12px; line-height:1.6;}
 
   /* --- last 7 days strip --- */
   .strip{display:flex; gap:5px; margin:0 0 6px;}
@@ -204,6 +221,19 @@
     <div style="flex:1;"><label class="f">PROTEIN g</label><input id="tPro" inputmode="decimal"></div>
   </div>
   <label style="font-family:var(--mono); font-size:10px; color:var(--muted); display:flex; gap:8px; align-items:center;">
+    <input type="checkbox" id="tCarbs" style="width:auto;"> Track carbs
+  </label>
+  <label style="font-family:var(--mono); font-size:10px; color:var(--muted); display:flex; gap:8px; align-items:center;">
+    <input type="checkbox" id="tFat" style="width:auto;"> Track fat
+  </label>
+  <div class="pair" id="tMacroRow" style="display:none;">
+    <div style="flex:1;" id="tCarbWrap"><label class="f">CARBS g</label><input id="tCarbT" inputmode="decimal"></div>
+    <div style="flex:1;" id="tFatWrap"><label class="f">FAT g</label><input id="tFatT" inputmode="decimal"></div>
+  </div>
+  <div class="hint" id="tMacroHint" style="display:none;">Suggested from your calorie
+    target — change them to whatever you're aiming for. Foods you added before now
+    won't have these numbers until you fill them in.</div>
+  <label style="font-family:var(--mono); font-size:10px; color:var(--muted); display:flex; gap:8px; align-items:center;">
     <input type="checkbox" id="tStreak" style="width:auto;"> Show logging streak
   </label>
   <div class="hint">Counts days you logged anything at all — not days you hit a target.</div>
@@ -251,11 +281,14 @@
     <div class="track"><div class="fill" id="calFill"></div><div class="notch" id="calNotch"></div></div>
   </div>
 
-  <div class="gauge">
+  <div class="gauge" id="proGauge">
     <div class="gauge-top"><span class="gauge-label">PROTEIN</span><span class="gauge-left" id="proLeft"></span></div>
     <div class="gauge-nums"><span class="big" id="proVal">0</span><span class="of" id="proOf"></span></div>
     <div class="track"><div class="fill" id="proFill"></div><div class="notch" id="proNotch"></div></div>
   </div>
+
+  <div class="macros" id="macros" style="display:none;"></div>
+  <div class="macnote" id="macNote"></div>
 
   <div class="strip" id="strip"></div>
   <div class="stripfoot" id="stripFoot"><span>LAST 7 DAYS</span><span id="stripAvg"></span></div>
@@ -323,6 +356,10 @@
         <input id="qc" placeholder="cal" inputmode="decimal">
         <input id="qp" placeholder="protein g" inputmode="decimal">
       </div>
+      <div class="pair" id="qMacroRow" style="display:none;">
+        <input id="qCb" placeholder="carbs g" inputmode="decimal">
+        <input id="qFt" placeholder="fat g" inputmode="decimal">
+      </div>
       <div class="pair">
         <button class="go" id="qAdd">Log it</button>
         <button class="cancel" id="qCancel">Cancel</button>
@@ -336,6 +373,10 @@
       <div class="pair">
         <input id="cc" placeholder="cal" inputmode="decimal">
         <input id="cp" placeholder="protein g" inputmode="decimal">
+      </div>
+      <div class="pair" id="cMacroRow" style="display:none;">
+        <input id="cCb" placeholder="carbs g" inputmode="decimal">
+        <input id="cFt" placeholder="fat g" inputmode="decimal">
       </div>
       <label class="f">GROUP</label>
       <select id="cg"></select>
@@ -385,41 +426,41 @@
 <div class="sr" id="live" aria-live="polite"></div>
 
 <script>
-var PREFIX = "ration:", CFG = "ration_cfg", VERSION = "2.3";
+var PREFIX = "ration:", CFG = "ration_cfg", VERSION = "2.4";
 
 var BUILTIN = [
-  {id:"b1", n:"Protein shake",s:"1 serving powder + water",c:150,p:21,g:"Morning"},
-  {id:"b2", n:"Protein smoothie",s:"powder + fruit + milk",c:390,p:26,g:"Morning"},
-  {id:"b3", n:"Oatmeal",s:"1 cup cooked",c:150,p:5,g:"Morning"},
-  {id:"b4", n:"Boiled egg",s:"1 large",c:70,p:6,g:"Morning"},
-  {id:"b5", n:"Greek yogurt",s:"1 cup plain",c:150,p:20,g:"Morning"},
-  {id:"b6", n:"Clementine",s:"1 fruit",c:35,p:1,g:"Snack"},
-  {id:"b7", n:"Apple",s:"1 medium",c:95,p:0,g:"Snack"},
-  {id:"b8", n:"Banana",s:"1 medium",c:105,p:1,g:"Snack"},
-  {id:"b9", n:"String cheese",s:"1 stick",c:80,p:7,g:"Snack"},
-  {id:"b10",n:"Deli turkey",s:"3 oz",c:90,p:18,g:"Snack"},
-  {id:"b11",n:"Almonds",s:"1 oz (~23)",c:165,p:6,g:"Snack"},
-  {id:"b12",n:"Protein bar",s:"1 bar",c:220,p:20,g:"Snack"},
-  {id:"b13",n:"Chicken breast",s:"6 oz cooked",c:180,p:40,g:"Mains"},
-  {id:"b14",n:"Chicken thigh",s:"6 oz cooked",c:220,p:33,g:"Mains"},
-  {id:"b15",n:"Salmon",s:"6 oz",c:350,p:40,g:"Mains"},
-  {id:"b16",n:"Lean ground beef",s:"6 oz cooked 93/7",c:310,p:46,g:"Mains"},
-  {id:"b17",n:"Canned tuna",s:"1 pouch (5 oz)",c:110,p:25,g:"Mains"},
-  {id:"b18",n:"Chili with beans",s:"1.5 cups",c:400,p:36,g:"Mains"},
-  {id:"b19",n:"Rice",s:"1 cup cooked",c:220,p:5,g:"Sides"},
-  {id:"b20",n:"Potato",s:"1 medium",c:160,p:4,g:"Sides"},
-  {id:"b21",n:"Pasta",s:"1 cup cooked",c:200,p:7,g:"Sides"},
-  {id:"b22",n:"Black beans",s:"1/2 cup",c:110,p:7,g:"Sides"},
-  {id:"b23",n:"Vegetables",s:"1 cup",c:45,p:3,g:"Sides"},
-  {id:"b24",n:"Bread",s:"1 slice",c:110,p:4,g:"Sides"},
-  {id:"b25",n:"Olive oil",s:"1 tbsp",c:120,p:0,g:"Sides"},
-  {id:"b26",n:"Peanut butter",s:"1 tbsp",c:95,p:4,g:"Sides"},
-  {id:"b27",n:"Coffee, black",s:"1 cup",c:5,p:0,g:"Drinks"},
-  {id:"b28",n:"Milk",s:"1 cup 2%",c:120,p:8,g:"Drinks"},
-  {id:"b29",n:"Sports drink, zero",s:"16 oz",c:20,p:0,g:"Drinks"},
-  {id:"b30",n:"Energy drink",s:"1 can",c:10,p:0,g:"Drinks"},
-  {id:"b31",n:"Beer",s:"12 oz",c:150,p:2,g:"Drinks"},
-  {id:"b32",n:"Glass of wine",s:"5 oz",c:125,p:0,g:"Drinks"}
+  {id:"b1", n:"Protein shake",s:"1 serving powder + water",c:150,p:21,g:"Morning",cb:8,ft:3},
+  {id:"b2", n:"Protein smoothie",s:"powder + fruit + milk",c:390,p:26,g:"Morning",cb:50,ft:8},
+  {id:"b3", n:"Oatmeal",s:"1 cup cooked",c:150,p:5,g:"Morning",cb:27,ft:3},
+  {id:"b4", n:"Boiled egg",s:"1 large",c:70,p:6,g:"Morning",cb:0.6,ft:5},
+  {id:"b5", n:"Greek yogurt",s:"1 cup plain",c:150,p:20,g:"Morning",cb:9,ft:4},
+  {id:"b6", n:"Clementine",s:"1 fruit",c:35,p:1,g:"Snack",cb:9,ft:0},
+  {id:"b7", n:"Apple",s:"1 medium",c:95,p:0,g:"Snack",cb:25,ft:0.3},
+  {id:"b8", n:"Banana",s:"1 medium",c:105,p:1,g:"Snack",cb:27,ft:0.4},
+  {id:"b9", n:"String cheese",s:"1 stick",c:80,p:7,g:"Snack",cb:1,ft:6},
+  {id:"b10",n:"Deli turkey",s:"3 oz",c:90,p:18,g:"Snack",cb:2,ft:1},
+  {id:"b11",n:"Almonds",s:"1 oz (~23)",c:165,p:6,g:"Snack",cb:6,ft:14},
+  {id:"b12",n:"Protein bar",s:"1 bar",c:220,p:20,g:"Snack",cb:22,ft:7},
+  {id:"b13",n:"Chicken breast",s:"6 oz cooked",c:180,p:40,g:"Mains",cb:0,ft:2},
+  {id:"b14",n:"Chicken thigh",s:"6 oz cooked",c:220,p:33,g:"Mains",cb:0,ft:10},
+  {id:"b15",n:"Salmon",s:"6 oz",c:350,p:40,g:"Mains",cb:0,ft:21},
+  {id:"b16",n:"Lean ground beef",s:"6 oz cooked 93/7",c:310,p:46,g:"Mains",cb:0,ft:14},
+  {id:"b17",n:"Canned tuna",s:"1 pouch (5 oz)",c:110,p:25,g:"Mains",cb:0,ft:1},
+  {id:"b18",n:"Chili with beans",s:"1.5 cups",c:400,p:36,g:"Mains",cb:40,ft:12},
+  {id:"b19",n:"Rice",s:"1 cup cooked",c:220,p:5,g:"Sides",cb:48,ft:0.5},
+  {id:"b20",n:"Potato",s:"1 medium",c:160,p:4,g:"Sides",cb:37,ft:0.2},
+  {id:"b21",n:"Pasta",s:"1 cup cooked",c:200,p:7,g:"Sides",cb:40,ft:1},
+  {id:"b22",n:"Black beans",s:"1/2 cup",c:110,p:7,g:"Sides",cb:20,ft:0.5},
+  {id:"b23",n:"Vegetables",s:"1 cup",c:45,p:3,g:"Sides",cb:9,ft:0.3},
+  {id:"b24",n:"Bread",s:"1 slice",c:110,p:4,g:"Sides",cb:20,ft:1.5},
+  {id:"b25",n:"Olive oil",s:"1 tbsp",c:120,p:0,g:"Sides",cb:0,ft:14},
+  {id:"b26",n:"Peanut butter",s:"1 tbsp",c:95,p:4,g:"Sides",cb:3,ft:8},
+  {id:"b27",n:"Coffee, black",s:"1 cup",c:5,p:0,g:"Drinks",cb:0,ft:0},
+  {id:"b28",n:"Milk",s:"1 cup 2%",c:120,p:8,g:"Drinks",cb:12,ft:5},
+  {id:"b29",n:"Sports drink, zero",s:"16 oz",c:20,p:0,g:"Drinks",cb:5,ft:0},
+  {id:"b30",n:"Energy drink",s:"1 can",c:10,p:0,g:"Drinks",cb:2,ft:0},
+  {id:"b31",n:"Beer",s:"12 oz",c:150,p:2,g:"Drinks",cb:13,ft:0},
+  {id:"b32",n:"Glass of wine",s:"5 oz",c:125,p:0,g:"Drinks",cb:4,ft:0}
 ];
 var BASE_GROUPS = ["Morning","Snack","Mains","Sides","Drinks"];
 var RECENT = " recent";
@@ -428,7 +469,8 @@ var FRAC = {0.25:"¼", 0.5:"½", 0.75:"¾", 1.5:"1½", 2.5:"2½"};
 
 var cfg = {calTarget:2000, proTarget:130, groups:BASE_GROUPS.slice(),
            custom:[], hidden:[], edits:{}, setup:false, ver:2, lastBackup:0, a2hs:false,
-           streak:false, weight:false, unit:"lb"};
+           streak:false, weight:false, unit:"lb",
+           carbs:false, fat:false, carbTarget:0, fatTarget:0};
 var day = todayStr(), group = null, entries = [], editMode = false;
 var openQty = null, openNote = null, editingId = null, query = "", showHidden = false;
 var undoState = null, undoTimer = null;
@@ -652,10 +694,15 @@ function library(){
     if(cfg.hidden.indexOf(f.id)>=0) return;
     var e=cfg.edits[f.id];
     out.push({id:f.id, b:true, n:e?e.n:f.n, s:e?e.s:f.s, c:e?e.c:f.c, p:e?e.p:f.p,
-              g:e?e.g:f.g, r:e?(e.r||""):""});
+              g:e?e.g:f.g, r:e?(e.r||""):"",
+              /* an edit made before carbs/fat existed has no cb/ft of its own —
+                 fall back to the built-in's figures rather than losing them */
+              cb: e ? (gv(e.cb)===null ? gv(f.cb) : gv(e.cb)) : gv(f.cb),
+              ft: e ? (gv(e.ft)===null ? gv(f.ft) : gv(e.ft)) : gv(f.ft)});
   });
   cfg.custom.forEach(function(f){
-    out.push({id:f.id, b:false, n:f.n, s:f.s, c:f.c, p:f.p, g:f.g, r:f.r||""});
+    out.push({id:f.id, b:false, n:f.n, s:f.s, c:f.c, p:f.p, g:f.g, r:f.r||"",
+              cb:gv(f.cb), ft:gv(f.ft)});
   });
   return out;
 }
@@ -747,9 +794,20 @@ function maintenance(series){
   return {cal: s.avg - r.rate*KCAL_PER_LB/7, stats:s, span:r.span};
 }
 
-/* ---------- totals ---------- */
+/* ---------- totals ----------
+   carbs and fat are optional data: a food that has never been given a value is
+   UNKNOWN, not zero. Summing unknowns as zero would quietly under-report, so
+   they're counted separately and declared in the UI. */
+function gv(v){ return (typeof v==="number" && isFinite(v)) ? v : null; }
 function totals(list){
-  return list.reduce(function(a,e){return {c:a.c+e.c*e.q, p:a.p+e.p*e.q};},{c:0,p:0});
+  var t={c:0, p:0, cb:0, ft:0, noCb:0, noFt:0};
+  list.forEach(function(e){
+    t.c += e.c*e.q; t.p += e.p*e.q;
+    var cb=gv(e.cb), ft=gv(e.ft);
+    if(cb===null) t.noCb++; else t.cb += cb*e.q;
+    if(ft===null) t.noFt++; else t.ft += ft*e.q;
+  });
+  return t;
 }
 
 /* ---------- toast / undo ---------- */
@@ -813,15 +871,70 @@ function renderStrip(){
 }
 
 /* ---------- render ---------- */
+/* With nothing extra enabled this keeps the original big protein gauge. Turn on
+   carbs and/or fat and protein joins them in a compact equal-weight row —
+   calories stay the headline, the macros share a tier below. */
+function renderMacros(t){
+  var extra = (cfg.carbs?1:0)+(cfg.fat?1:0);
+  var big=document.getElementById("proGauge"), row=document.getElementById("macros");
+  var note=document.getElementById("macNote");
+  if(!extra){
+    big.style.display="block"; row.style.display="none"; note.textContent="";
+    gauge("pro",t.p,cfg.proTarget,"g","var(--olive)",true);
+    return;
+  }
+  big.style.display="none"; row.style.display="flex";
+  row.innerHTML="";
+  var cols=[{k:"PROTEIN", v:t.p, tgt:cfg.proTarget, col:"var(--olive)", floor:true}];
+  if(cfg.carbs) cols.push({k:"CARBS", v:t.cb, tgt:cfg.carbTarget, col:"var(--carb)", miss:t.noCb});
+  if(cfg.fat)   cols.push({k:"FAT",   v:t.ft, tgt:cfg.fatTarget,  col:"var(--fat)",  miss:t.noFt});
+
+  cols.forEach(function(c){
+    var tgt=c.tgt>0?c.tgt:0, max=(tgt||1)*1.3, over=tgt>0&&c.v>tgt;
+    var d=document.createElement("div"); d.className="mac";
+    var lab=document.createElement("span"); lab.className="mac-label"; lab.textContent=c.k;
+    var nums=document.createElement("div"); nums.className="mac-nums";
+    var val=document.createElement("span"); val.className="mac-val"; val.textContent=nf(c.v);
+    var of=document.createElement("span"); of.className="mac-of";
+    of.textContent = tgt>0 ? "/ "+nf(tgt)+"g" : "g";
+    nums.appendChild(val); nums.appendChild(of);
+    var tr=document.createElement("div"); tr.className="track";
+    var fi=document.createElement("div"); fi.className="fill";
+    fi.style.width=Math.min(c.v/max*100,100)+"%";
+    /* protein is a floor, so passing it is fine. carbs and fat are budgets, but
+       the app doesn't know anyone's goal — amber reads as "past target", not
+       as a failure the way red would */
+    fi.style.background = (over && !c.floor) ? "var(--amber)" : c.col;
+    tr.appendChild(fi);
+    if(tgt>0){ var no=document.createElement("div"); no.className="notch";
+      no.style.left=(tgt/max*100)+"%"; tr.appendChild(no); }
+    var left=document.createElement("span");
+    left.className="mac-left"+(over?(c.floor?" met":" over"):"");
+    left.textContent = tgt>0 ? (over ? "+"+nf(c.v-tgt)+" over" : nf(tgt-c.v)+" left") : "no target set";
+    d.appendChild(lab); d.appendChild(nums); d.appendChild(tr); d.appendChild(left);
+    row.appendChild(d);
+  });
+
+  /* say so rather than letting missing data read as a smaller number */
+  var msgs=[];
+  if(cfg.carbs && t.noCb) msgs.push(t.noCb+" without carb data");
+  if(cfg.fat && t.noFt) msgs.push(t.noFt+" without fat data");
+  note.textContent = msgs.length
+    ? "⚠ "+msgs.join(" · ")+" — totals are low by that much. Edit the food to fill it in."
+    : "";
+}
+
 function render(){
   document.getElementById("date").innerHTML = pretty(day)+(day===todayStr()?'<span class="dot">&#9679;</span>':"");
   document.getElementById("next").disabled = (day===todayStr());
-  document.getElementById("targetLine").textContent =
-    "TARGET "+nf(cfg.calTarget)+" CAL · "+nf(cfg.proTarget)+"G PROTEIN";
+  var tl="TARGET "+nf(cfg.calTarget)+" CAL · "+nf(cfg.proTarget)+"G PROTEIN";
+  if(cfg.carbs && cfg.carbTarget>0) tl+=" · "+nf(cfg.carbTarget)+"G CARBS";
+  if(cfg.fat && cfg.fatTarget>0) tl+=" · "+nf(cfg.fatTarget)+"G FAT";
+  document.getElementById("targetLine").textContent=tl;
 
   var t=totals(entries);
   gauge("cal",t.c,cfg.calTarget,"cal","var(--amber)",false);
-  gauge("pro",t.p,cfg.proTarget,"g","var(--olive)",true);
+  renderMacros(t);
   renderStrip();
   renderStreak();
   renderWeight();
@@ -1056,8 +1169,13 @@ function renderBackupLine(){
 
 /* ---------- actions ---------- */
 function add(f,q){
-  entries.push({id:uid("e"), fid:f.id||null, n:f.n, c:num(f.c)||0, p:num(f.p)||0,
-                q:q||1, t:Date.now()});
+  var e={id:uid("e"), fid:f.id||null, n:f.n, c:num(f.c)||0, p:num(f.p)||0,
+         q:q||1, t:Date.now()};
+  /* only record carbs/fat when the food actually has them, so "unknown" stays
+     distinguishable from a genuine zero */
+  if(gv(f.cb)!==null) e.cb=gv(f.cb);
+  if(gv(f.ft)!==null) e.ft=gv(f.ft);
+  entries.push(e);
   /* don't show a total that isn't actually stored */
   if(!saveDay()){ entries.pop(); render(); return; }
   openQty=null; render();
@@ -1103,6 +1221,11 @@ function openFoodForm(f){
   document.getElementById("cc").value = f?nf(f.c):"";
   document.getElementById("cp").value = f?nf(f.p):"";
   document.getElementById("cr").value = f?(f.r||""):"";
+  document.getElementById("cCb").value = (f && gv(f.cb)!==null) ? nf(f.cb) : "";
+  document.getElementById("cFt").value = (f && gv(f.ft)!==null) ? nf(f.ft) : "";
+  document.getElementById("cMacroRow").style.display = (cfg.carbs||cfg.fat)?"flex":"none";
+  document.getElementById("cCb").style.display = cfg.carbs?"block":"none";
+  document.getElementById("cFt").style.display = cfg.fat?"block":"none";
   document.getElementById("cg").value = f?f.g:(group===RECENT?cfg.groups[0]:group);
   document.getElementById("cKeepRow").style.display = f?"none":"flex";
   document.getElementById("cAdd").textContent = f?"Save":"Add";
@@ -1186,7 +1309,33 @@ document.getElementById("cog").onclick=function(){
   document.getElementById("tStreak").checked=!!cfg.streak;
   document.getElementById("tWeight").checked=!!cfg.weight;
   document.getElementById("tUnit").value=cfg.unit||"lb";
+  document.getElementById("tCarbs").checked=!!cfg.carbs;
+  document.getElementById("tFat").checked=!!cfg.fat;
+  document.getElementById("tCarbT").value=cfg.carbTarget>0?nf(cfg.carbTarget):"";
+  document.getElementById("tFatT").value=cfg.fatTarget>0?nf(cfg.fatTarget):"";
+  syncMacroFields();
 };
+/* 30% of calories from fat is a common starting split; carbs take whatever is
+   left once protein and fat are accounted for, so the three add up to the
+   calorie target instead of being three unrelated guesses */
+function suggestFat(){ return Math.max(1, Math.round(cfg.calTarget*0.30/9)); }
+function suggestCarb(f){
+  return Math.max(0, Math.round((cfg.calTarget - cfg.proTarget*4 - f*9)/4));
+}
+function syncMacroFields(){
+  var cOn=document.getElementById("tCarbs").checked;
+  var fOn=document.getElementById("tFat").checked;
+  document.getElementById("tMacroRow").style.display=(cOn||fOn)?"flex":"none";
+  document.getElementById("tMacroHint").style.display=(cOn||fOn)?"block":"none";
+  document.getElementById("tCarbWrap").style.display=cOn?"block":"none";
+  document.getElementById("tFatWrap").style.display=fOn?"block":"none";
+  /* prefill a suggestion the first time, so nobody faces an empty box */
+  var ft=document.getElementById("tFatT"), cb=document.getElementById("tCarbT");
+  if(fOn && !num(ft.value)) ft.value=nf(suggestFat());
+  if(cOn && !num(cb.value)) cb.value=nf(suggestCarb(num(ft.value)>0?num(ft.value):suggestFat()));
+}
+document.getElementById("tCarbs").onchange=syncMacroFields;
+document.getElementById("tFat").onchange=syncMacroFields;
 document.getElementById("tClose").onclick=function(){document.getElementById("settings").style.display="none";};
 document.getElementById("tSave").onclick=function(){
   var c=num(document.getElementById("tCal").value), p=num(document.getElementById("tPro").value);
@@ -1195,6 +1344,12 @@ document.getElementById("tSave").onclick=function(){
   cfg.streak=document.getElementById("tStreak").checked;
   cfg.weight=document.getElementById("tWeight").checked;
   cfg.unit=document.getElementById("tUnit").value==="kg"?"kg":"lb";
+  cfg.carbs=document.getElementById("tCarbs").checked;
+  cfg.fat=document.getElementById("tFat").checked;
+  var ct=num(document.getElementById("tCarbT").value);
+  var ft=num(document.getElementById("tFatT").value);
+  if(cfg.fat) cfg.fatTarget = ft>0?ft:suggestFat();
+  if(cfg.carbs) cfg.carbTarget = ct>0?ct:suggestCarb(cfg.fatTarget>0?cfg.fatTarget:suggestFat());
   saveCfg(); document.getElementById("settings").style.display="none"; render();
 };
 
@@ -1276,17 +1431,25 @@ document.getElementById("wDel").onclick=function(){
 document.getElementById("quickBtn").onclick=function(){
   closeFoodForm();
   document.getElementById("quickCard").style.display="grid";
+  document.getElementById("qMacroRow").style.display=(cfg.carbs||cfg.fat)?"flex":"none";
+  document.getElementById("qCb").style.display=cfg.carbs?"block":"none";
+  document.getElementById("qFt").style.display=cfg.fat?"block":"none";
   document.getElementById("qn").focus();
 };
 document.getElementById("qCancel").onclick=function(){
   document.getElementById("quickCard").style.display="none";
-  ["qn","qc","qp"].forEach(function(id){document.getElementById(id).value="";});
+  ["qn","qc","qp","qCb","qFt"].forEach(function(id){document.getElementById(id).value="";});
 };
 document.getElementById("qAdd").onclick=function(){
   var n=document.getElementById("qn").value.trim() || "Something";
   var c=num(document.getElementById("qc").value); if(isNaN(c)) c=0;
   var p=num(document.getElementById("qp").value); if(isNaN(p)) p=0;
-  entries.push({id:uid("e"), fid:null, n:n, c:c, p:p, q:1, t:Date.now(), est:1});
+  var qcb=num(document.getElementById("qCb").value);
+  var qft=num(document.getElementById("qFt").value);
+  var qe={id:uid("e"), fid:null, n:n, c:c, p:p, q:1, t:Date.now(), est:1};
+  if(!isNaN(qcb)) qe.cb=qcb;
+  if(!isNaN(qft)) qe.ft=qft;
+  entries.push(qe);
   if(!saveDay()){ entries.pop(); render(); return; }
   document.getElementById("qCancel").click();
   render(); persistOnce();
@@ -1303,20 +1466,36 @@ document.getElementById("cAdd").onclick=function(){
   var p=num(document.getElementById("cp").value); if(isNaN(p)) p=0;
   var g=document.getElementById("cg").value;
   var r=document.getElementById("cr").value.trim();
+  /* blank stays blank: an empty box means "I don't know", not zero grams */
+  var cb=num(document.getElementById("cCb").value); if(isNaN(cb)) cb=null;
+  var ft=num(document.getElementById("cFt").value); if(isNaN(ft)) ft=null;
   if(!n||isNaN(c)){ toast("Needs a name and a calorie number."); return; }
 
   if(editingId){
     var f=foodById(editingId);
-    if(f && f.b) cfg.edits[editingId]={n:n,s:s||"1 serving",c:c,p:p,g:g,r:r};
-    else cfg.custom.forEach(function(x){ if(x.id===editingId){x.n=n;x.s=s||"1 serving";x.c=c;x.p=p;x.g=g;x.r=r;} });
+    var rec={n:n,s:s||"1 serving",c:c,p:p,g:g,r:r};
+    if(cb!==null) rec.cb=cb;
+    if(ft!==null) rec.ft=ft;
+    if(f && f.b) cfg.edits[editingId]=rec;
+    else cfg.custom.forEach(function(x){
+      if(x.id===editingId){
+        x.n=n; x.s=rec.s; x.c=c; x.p=p; x.g=g; x.r=r;
+        if(cb!==null) x.cb=cb; else delete x.cb;
+        if(ft!==null) x.ft=ft; else delete x.ft;
+      }
+    });
     saveCfg(); closeFoodForm(); render(); toast("Saved.");
     return;
   }
 
   var keep=document.getElementById("cKeep").checked, food={n:n,c:c,p:p};
+  if(cb!==null) food.cb=cb;
+  if(ft!==null) food.ft=ft;
   if(keep){
-    var id=uid("c");
-    cfg.custom.push({id:id,n:n,s:s||"1 serving",c:c,p:p,g:g,r:r});
+    var id=uid("c"), rec2={id:id,n:n,s:s||"1 serving",c:c,p:p,g:g,r:r};
+    if(cb!==null) rec2.cb=cb;
+    if(ft!==null) rec2.ft=ft;
+    cfg.custom.push(rec2);
     saveCfg(); food.id=id;
   }
   add(food,1);
@@ -1325,7 +1504,10 @@ document.getElementById("cAdd").onclick=function(){
 
 document.getElementById("exportBtn").onclick=function(){
   var allW=readWeights();
-  var txt="RATION LOG EXPORT\nTarget: "+nf(cfg.calTarget)+" cal, "+nf(cfg.proTarget)+"g protein\n";
+  var hdr="Target: "+nf(cfg.calTarget)+" cal, "+nf(cfg.proTarget)+"g protein";
+  if(cfg.carbs) hdr+=", "+nf(cfg.carbTarget)+"g carbs";
+  if(cfg.fat) hdr+=", "+nf(cfg.fatTarget)+"g fat";
+  var txt="RATION LOG EXPORT\n"+hdr+"\n";
   /* a day with only a weigh-in is still a day worth exporting */
   var dates={};
   dayKeys().forEach(function(k){ dates[k.slice(PREFIX.length)]=1; });
@@ -1334,11 +1516,16 @@ document.getElementById("exportBtn").onclick=function(){
     var arr=readDay(dd), wt=allW[dd];
     if(!arr.length && !wt) return;
     var t=totals(arr);
-    txt+="\n"+dd+"  —  "+(arr.length ? nf(t.c)+" cal, "+nf(t.p)+"g protein" : "nothing logged")+
+    var macs=nf(t.c)+" cal, "+nf(t.p)+"g protein";
+    if(cfg.carbs) macs+=", "+nf(t.cb)+"g carbs"+(t.noCb?" (+"+t.noCb+" unknown)":"");
+    if(cfg.fat) macs+=", "+nf(t.ft)+"g fat"+(t.noFt?" (+"+t.noFt+" unknown)":"");
+    txt+="\n"+dd+"  —  "+(arr.length ? macs : "nothing logged")+
          (wt?"  ·  "+nf(toDisp(wt))+" "+unitLabel():"")+"\n";
     arr.forEach(function(e){
-      txt+="  "+e.n+(e.q!==1?" ×"+qLabel(e.q):"")+
-           "  ("+(e.est?"~":"")+nf(e.c*e.q)+" / "+nf(e.p*e.q)+"g)"+
+      var det=(e.est?"~":"")+nf(e.c*e.q)+" / "+nf(e.p*e.q)+"g";
+      if(cfg.carbs) det+=" / "+(gv(e.cb)===null?"?":nf(e.cb*e.q)+"g");
+      if(cfg.fat) det+=" / "+(gv(e.ft)===null?"?":nf(e.ft*e.q)+"g");
+      txt+="  "+e.n+(e.q!==1?" ×"+qLabel(e.q):"")+"  ("+det+")"+
            (e.est?"   [estimate]":"")+"\n";
     });
   });
@@ -1363,7 +1550,11 @@ document.getElementById("closeOut").onclick=function(){
 };
 
 document.getElementById("shareBtn").onclick=function(){
-  var mine=cfg.custom.map(function(f){return {n:f.n,s:f.s,c:f.c,p:f.p,g:f.g,r:f.r||""};});
+  var mine=cfg.custom.map(function(f){
+    var o={n:f.n,s:f.s,c:f.c,p:f.p,g:f.g,r:f.r||""};
+    if(gv(f.cb)!==null) o.cb=f.cb;
+    if(gv(f.ft)!==null) o.ft=f.ft;
+    return o;});
   if(!mine.length){ toast("No custom foods to share yet."); return; }
   var base=(location.origin && location.origin!=="null")
     ? location.origin+location.pathname : location.href.split("#")[0];
@@ -1406,7 +1597,10 @@ function importPayload(o, allowDays){
     if(have[String(f.n).toLowerCase()]) return;
     var g=f.g||"Mains";
     if(cfg.groups.indexOf(g)<0) cfg.groups.push(g);
-    cfg.custom.push({id:uid("c"), n:String(f.n), s:f.s||"1 serving", c:c, p:num(f.p)||0, g:g, r:f.r||""});
+    var rec={id:uid("c"), n:String(f.n), s:f.s||"1 serving", c:c, p:num(f.p)||0, g:g, r:f.r||""};
+    if(gv(num(f.cb))!==null) rec.cb=num(f.cb);
+    if(gv(num(f.ft))!==null) rec.ft=num(f.ft);
+    cfg.custom.push(rec);
     have[String(f.n).toLowerCase()]=1;
     added++;
   });
@@ -1435,6 +1629,10 @@ function importPayload(o, allowDays){
   }
   /* restoring a backup should bring your settings back too, not just the data */
   if(o.cfg){
+    if(typeof o.cfg.carbs==="boolean") cfg.carbs=o.cfg.carbs;
+    if(typeof o.cfg.fat==="boolean") cfg.fat=o.cfg.fat;
+    if(num(o.cfg.carbTarget)>0) cfg.carbTarget=num(o.cfg.carbTarget);
+    if(num(o.cfg.fatTarget)>0) cfg.fatTarget=num(o.cfg.fatTarget);
     if(typeof o.cfg.weight==="boolean") cfg.weight=o.cfg.weight;
     if(typeof o.cfg.streak==="boolean") cfg.streak=o.cfg.streak;
     if(o.cfg.unit==="kg"||o.cfg.unit==="lb") cfg.unit=o.cfg.unit;
